@@ -7,8 +7,8 @@ use std::io::{Cursor, Read};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{net::Ipv4Addr, time::Duration};
-use tokio::net::{lookup_host, UdpSocket};
-use tokio::time::timeout_at;
+use std::net::UdpSocket;
+use tokio::net::lookup_host;
 use tokio::time::Instant;
 
 use crate::{constants::*, errors::*, helpers};
@@ -36,6 +36,13 @@ static QUERY_RATE_LIMIT_LIST: Lazy<Mutex<HashMap<String, RateLimitEntry>>> =
 static CACHED_QUERY: Lazy<tokio::sync::Mutex<Option<(Query, String)>>> =
     Lazy::new(|| tokio::sync::Mutex::new(None));
 
+// The query socket is a plain blocking std socket with a read timeout, and every
+// receive runs on tokio's blocking pool. tokio's own UdpSocket spins under Wine:
+// Wine's AFD poll can flag a connected UDP socket AFD_POLL_CONNECT_FAIL, which
+// tokio turns into a sticky READ_CLOSED readiness, while Wine's recv then
+// answers WSAEWOULDBLOCK instead of the error - so tokio retried recv in a
+// tight loop until the query timeout, and the socket is cached and reused, so
+// it never stopped (two cores and a saturated wineserver, laggy UI).
 pub struct Query {
     address: Ipv4Addr,
     port: i32,
@@ -104,13 +111,15 @@ impl Query {
         };
 
         let socket = UdpSocket::bind("0.0.0.0:0")
-            .await
             .map_err(|e| LauncherError::Network(format!("Failed to bind socket: {}", e)))?;
 
         socket
-            .connect(format!("{}:{}", addr, port))
-            .await
+            .connect((parsed_address, port as u16))
             .map_err(|e| LauncherError::Network(format!("Failed to connect to server: {}", e)))?;
+
+        socket
+            .set_read_timeout(Some(Duration::from_secs(QUERY_TIMEOUT_SECS)))
+            .map_err(|e| LauncherError::Network(format!("Failed to set socket timeout: {}", e)))?;
 
         let data = Self {
             address: parsed_address,
@@ -139,24 +148,32 @@ impl Query {
             packet.extend_from_slice(&payload);
         }
 
+        // a UDP send does not block
         let amt = self
             .socket
             .send(&packet)
-            .await
             .map_err(|e| LauncherError::Network(format!("Failed to send packet: {}", e)))?;
         Ok(amt)
     }
 
     pub async fn recv(&self) -> Result<String> {
-        let mut buf = [0; UDP_BUFFER_SIZE];
-        let amt = match timeout_at(
-            Instant::now() + Duration::from_secs(QUERY_TIMEOUT_SECS),
-            self.socket.recv(&mut buf),
-        )
+        let socket = self
+            .socket
+            .try_clone()
+            .map_err(|e| LauncherError::Network(format!("Failed to clone socket: {}", e)))?;
+        let (buf, received) = tokio::task::spawn_blocking(move || {
+            let mut buf = [0; UDP_BUFFER_SIZE];
+            let received = socket.recv(&mut buf);
+            (buf, received)
+        })
         .await
-        .map_err(|_| LauncherError::Network("Query timeout".to_string()))?
-        {
+        .map_err(|e| LauncherError::InternalError(format!("Query receive task failed: {}", e)))?;
+        let amt = match received {
             Ok(n) => n,
+            // the read timeout (Windows reports it as TimedOut, Unix as WouldBlock)
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {
+                return Err(LauncherError::Network("Query timeout".to_string()))
+            }
             Err(e) => return Err(LauncherError::from(e)),
         };
 

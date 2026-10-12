@@ -73,3 +73,7 @@ codegen-units = 1
 lto = true
 opt-level = "z"
 strip = true
+
+# Wine fixes in a vendored wry (see WINE-BUILD.md)
+[patch.crates-io]
+wry = { path = "vendor/wry-0.24.10" }

@@ -219,7 +219,7 @@ const App = memo(() => {
   }, []);
 
   const appStyle = useMemo(
-    () => [styles.app, { padding: maximized || IN_GAME ? 0 : 4 }],
+    () => [styles.app, { padding: 0 }],
     [maximized]
   );
 
@@ -227,7 +227,7 @@ const App = memo(() => {
     () => [
       styles.appView,
       {
-        borderRadius: maximized || IN_GAME ? 0 : 10,
+        borderRadius: 0,
         backgroundColor: theme.secondary,
       },
     ],
