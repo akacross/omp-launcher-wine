@@ -14,6 +14,24 @@ fixes them in source.
 | Resize cursor sticks after the pointer crosses an edge | wry (frameless windows) sets resize cursors from the launcher process but never the arrow, leaving it to Chromium; under Wine Chromium (another process) cannot change the window's cursor. | Vendored wry 0.24.10 (`src-tauri/vendor/`, wired in with `[patch.crates-io]`): always sets the cursor, the arrow included. |
 | Black box around the window | The window is transparent and the page leaves a 4 px margin around a rounded panel; Wine cannot show per-pixel transparency there. | `src/App.tsx`: no margin, no rounded corners. |
 
+## Chromium flags and rendering
+
+The vendored wry appends the contents of `OMP_WEBVIEW2_ARGS` to WebView2's
+browser arguments (WebView2's own `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` and
+its registry policy are both ignored once the app passes arguments, which wry
+always does). Under Wine, run it with `OMP_WEBVIEW2_ARGS=--disable-gpu`:
+WebView2 then draws in software and hands Wine plain GDI output, instead of a
+DXVK swapchain in a child window owned by another process. Measured with
+Chromium's event timing (`--remote-debugging-port` through the same variable):
+GPU mode ran 60 frames/s and painted 4 of 24 keystrokes later than 16 ms
+(worst 40 ms); software mode ran at the monitor's rate and painted all 24
+within 16 ms.
+
+Native Wayland (`PROTON_ENABLE_WAYLAND=1`) does not work: Wine's Wayland driver
+shows nothing from a child window owned by another process, and WebView2's
+content window belongs to `msedgewebview2.exe`. Blank with GPU and with
+software rendering, though Chromium renders fine.
+
 Also known, not fixed here: the launcher's own download of the open.mp plugin
 (`tauri-plugin-upload`, reqwest on tokio) stalls ~24 KB before the end under
 Wine. Place `omp-client.dll` (from the URL in https://api.open.mp/launcher,

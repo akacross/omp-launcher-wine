@@ -123,13 +123,22 @@ impl InnerWebView {
           options
         };
 
+        let mut browser_args = pl_attrs.additional_browser_args.unwrap_or_else(|| {
+          // remove "mini menu" - See https://github.com/tauri-apps/wry/issues/535
+          // and "smart screen" - See https://github.com/tauri-apps/tauri/issues/1345
+          "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection".to_string()
+        });
+        // Extra Chromium flags from the environment (WINE-BUILD.md). WebView2's own
+        // WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS is ignored once the app passes
+        // arguments, which it always does here.
+        if let Ok(extra) = std::env::var("OMP_WEBVIEW2_ARGS") {
+          if !extra.trim().is_empty() {
+            browser_args.push(' ');
+            browser_args.push_str(extra.trim());
+          }
+        }
         let _ = options.SetAdditionalBrowserArguments(PCWSTR::from_raw(
-          encode_wide(pl_attrs.additional_browser_args.unwrap_or_else(|| {
-            // remove "mini menu" - See https://github.com/tauri-apps/wry/issues/535
-            // and "smart screen" - See https://github.com/tauri-apps/tauri/issues/1345
-            "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection".to_string()
-          }))
-          .as_ptr(),
+          encode_wide(browser_args).as_ptr(),
         ));
 
         if let Some(data_directory) = data_directory {
