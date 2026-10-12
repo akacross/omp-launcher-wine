@@ -1,0 +1,10 @@
+# Cross-build for 32-bit Windows from Linux with MinGW (see WINE-BUILD.md)
+[target.i686-pc-windows-gnu]
+linker = "i686-w64-mingw32-gcc"
+ar = "i686-w64-mingw32-ar"
+
+[env]
+CC_i686_pc_windows_gnu = "i686-w64-mingw32-gcc"
+CXX_i686_pc_windows_gnu = "i686-w64-mingw32-g++"
+AR_i686_pc_windows_gnu = "i686-w64-mingw32-ar"
+WINDRES = "i686-w64-mingw32-windres"

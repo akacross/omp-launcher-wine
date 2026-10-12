@@ -29,6 +29,9 @@ fn create_overlay_window(
     .visible(false)
     .position(-10000.0, -10000.0)
     .skip_taskbar(true)
+    // no drag-and-drop handler: wry revokes WebView2's own first, on a window of
+    // another process, and Wine's RevokeDragDrop crashes on that
+    .disable_file_drop_handler()
     .build()
     {
         Ok(window) => {
