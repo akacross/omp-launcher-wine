@@ -1,9 +1,12 @@
 # open.mp launcher v1.6.1, rebuilt for Wine/Proton
 
-Branch `wine` of a clone of https://github.com/openmultiplayer/launcher at tag
-v1.6.1. Upstream's launcher installs and opens under Proton (with the Microsoft
-Edge WebView2 runtime), but four problems make it unusable there. This branch
-fixes them in source.
+A Wine/Proton compatibility pass on https://github.com/openmultiplayer/launcher
+at tag v1.6.1. Upstream's launcher installs and opens under Proton (with the
+Microsoft Edge WebView2 runtime), but crashes, lags and breaks the in-game
+server browser there. These changes fix that in source. Everything Wine-only
+is behind a check for `wine_get_version` in ntdll, so on Windows the launcher
+behaves as upstream's. The full setup (prefix, WebView2, launch script) is
+[samp-openmp-linux](https://github.com/akacross/samp-openmp-linux).
 
 ## The fixes
 
