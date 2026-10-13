@@ -188,6 +188,8 @@ fn setup_tauri_app(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std:
 
     if let Some(main_window) = app.get_window("main") {
         main_window.set_min_size(Some(PhysicalSize::new(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)))?;
+        #[cfg(windows)]
+        set_window_icon_from_exe(&main_window);
     }
 
     let config = handle.config();
@@ -203,6 +205,34 @@ fn setup_tauri_app(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std:
 
     ipc::listen_for_ipc(handle);
     Ok(())
+}
+
+/// Neither Tauri nor tao gives the window an icon: Windows' taskbar falls back to
+/// the exe's own, but under Wine the desktop (KDE) only sees the window's icon
+/// and shows Wine's generic one. Set the exe's icon resource (group 32512,
+/// embedded by tauri-build) on the window. See WINE-BUILD.md.
+#[cfg(windows)]
+fn set_window_icon_from_exe(window: &tauri::Window) {
+    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetSystemMetrics, LoadImageW, SendMessageW, ICON_BIG, ICON_SMALL, IMAGE_ICON, LR_SHARED,
+        SM_CXSMICON, SM_CYSMICON, WM_SETICON,
+    };
+    let Ok(hwnd) = window.hwnd() else { return };
+    unsafe {
+        let module = GetModuleHandleW(std::ptr::null());
+        let resource = 32512usize as *const u16; // MAKEINTRESOURCEW(32512)
+        let sizes = [
+            (ICON_BIG, 256, 256),
+            (ICON_SMALL, GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON)),
+        ];
+        for (kind, cx, cy) in sizes {
+            let icon = LoadImageW(module, resource, IMAGE_ICON, cx, cy, LR_SHARED);
+            if icon != 0 {
+                SendMessageW(hwnd.0, WM_SETICON, kind as usize, icon);
+            }
+        }
+    }
 }
 
 #[cfg(windows)]
