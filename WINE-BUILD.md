@@ -13,6 +13,8 @@ fixes them in source.
 | Typing and resizing lag; two cores busy while idle; wineserver ~70% | Server queries used tokio's `UdpSocket`. Wine's AFD poll can flag a connected UDP socket `AFD_POLL_CONNECT_FAIL` (0x100); tokio turns that into a sticky READ_CLOSED readiness, while Wine's `recv` answers "would block" instead of the error, so tokio retries `recv` in a tight loop until the 2 s query timeout. The query socket is cached and reused, so it never stopped. | `src-tauri/src/query.rs`: a blocking `std::net::UdpSocket` with a 2 s read timeout; each receive runs on tokio's blocking pool. Idle CPU went from 17 s per 10 s to ~0.05 s. |
 | Resize cursor sticks after the pointer crosses an edge | wry (frameless windows) sets resize cursors from the launcher process but never the arrow, leaving it to Chromium; under Wine Chromium (another process) cannot change the window's cursor. | Vendored wry 0.24.10 (`src-tauri/vendor/`, wired in with `[patch.crates-io]`): always sets the cursor, the arrow included. |
 | Black box around the window | The window is transparent and the page leaves a 4 px margin around a rounded panel; Wine cannot show per-pixel transparency there. | `src/App.tsx`: no margin, no rounded corners. |
+| Generic Wine icon in the desktop's taskbar | Neither Tauri nor tao sets a window icon; Windows' taskbar falls back to the exe's icon, but under Wine the desktop only sees the window's. | `src-tauri/src/main.rs`: set the exe's icon resource (group 32512) on the main window with `WM_SETICON`. |
+| The open.mp plugin gets "updated" to an older one (v0.1.4) | Upstream race: the loading screen's plugin check fetches the update info itself when `fetchUpdateInfo()` hasn't stored it yet, and then uses the top-level fields (the version-5 launcher's plugin) instead of this build's `versions["6"]` entry. | `src/containers/LoadingScreen/index.tsx`: apply the same version match. |
 
 ## Chromium flags and rendering
 
@@ -54,8 +56,12 @@ yarn 1.
 npx yarn@1.22.22 install --frozen-lockfile
 npx yarn@1.22.22 build
 cd src-tauri
-~/.cargo/bin/cargo build --release --target i686-pc-windows-gnu --features custom-protocol
+TARGET=i686-pc-windows-gnu ~/.cargo/bin/cargo build --release --target i686-pc-windows-gnu --features custom-protocol
 ```
+
+`TARGET` matters: tauri-codegen picks Windows or Linux handling (the window
+icon format, for one) from it, but Cargo only sets it for build scripts, so
+without it Tauri's `generate_context!` macro sees the Linux host.
 
 Output: `src-tauri/target/i686-pc-windows-gnu/release/omp-launcher.exe` and
 `WebView2Loader.dll` (the GNU build loads WebView2 from that DLL, so ship it
