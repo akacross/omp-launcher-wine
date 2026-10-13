@@ -54,8 +54,24 @@ out and an empty square in game.
   version 1, width, height, stride, seq odd while writing, pid, reserved) and
   BGRA rows, top-down, room for 3840x2160.
 
+- builds the overlay with `focused(false)` (`ipc.rs`). Tauri's default
+  `focused(true)` made wry `MoveFocus` into the new WebView and tao force the
+  window to the foreground (`force_window_active`: `SetForegroundWindow`,
+  then a synthetic Alt press if that fails). Windows' foreground lock stops
+  that; Wine has none, so every open took the foreground for ~180 ms and the
+  full-screen game minimised. Now the first `show()` is `SW_SHOWNOACTIVATE`
+  and nothing focuses the WebView.
+
 The game side is `ompoverlay.asi` (`/mnt/data/Projects/samp/ompoverlay`): it
-points omp-client's `PrintWindow` import at a copy from that block. The game
+points omp-client's `PrintWindow` import at a copy from that block. It also
+works around an omp-client bug: closing the overlay frees its DIB but keeps
+its size, so a reopen at the same size never makes a new one (the browser
+opened only once).
+
+Testing without the game: a process holding the foreground, plus a script
+that speaks omp-client's IPC (`init:`, `show_overlay:`, `pos:`,
+`hide_overlay:` with that process's pid). The front end closes an overlay
+whose `attached_id` process is not alive, after about a second. The game
 and the launcher must share a prefix (and so a wineserver); start games from
 the launcher.
 
