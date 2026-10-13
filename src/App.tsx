@@ -180,7 +180,12 @@ const App = memo(() => {
                 id: IN_GAME_PROCESS_ID,
                 message: "close_overlay",
               });
-              setTimeout(() => appWindow.close(), 300);
+              // through the launcher: under Wine it waits for the frame
+              // capture in flight (src-tauri/src/wine_overlay.rs)
+              setTimeout(
+                () => invoke("close_this_overlay").catch(() => appWindow.close()),
+                300
+              );
             }
           } catch (error) {
             console.error("Game process check failed:", error);

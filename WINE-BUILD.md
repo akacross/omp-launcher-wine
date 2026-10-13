@@ -36,44 +36,91 @@ software rendering, though Chromium renders fine.
 
 ## The in-game browser
 
-omp-client.dll asks the launcher (IPC, `show_overlay:<pid>`) for an overlay
-window, `omp_overlay_window:<game pid>`, copies it with `PrintWindow` every
-frame and posts the player's input to its WebView. On Windows the window sits
-invisible at -15000,-15000. Under Wine the window manager pulls it back on
-screen, `show()` activates it so the game loses focus, and `PrintWindow`
-returns no pixels: Wine sends `WM_PRINT` with the game's DC to the launcher,
-which cannot draw into another process's DC. The result is the game tabbing
-out and an empty square in game.
+omp-client.dll asks the launcher (IPC on 127.0.0.1:45791, `show_overlay:<pid>`)
+for an overlay window, `omp_overlay_window:<game pid>`. It copies that window
+with `PrintWindow` every frame and posts the player's input to its WebView. On
+Windows the window sits invisible at -15000,-15000. Under Wine three things
+break:
+
+- the window manager pulls the window back on screen;
+- `show()` activates it, so the full-screen game loses focus and minimises;
+- `PrintWindow` returns no pixels. Wine sends `WM_PRINT` with the game's DC
+  to the launcher, which cannot draw into another process's DC.
+
+The result is the game tabbing out and an empty square in game.
 
 `src-tauri/src/wine_overlay.rs` (only when ntdll exports `wine_get_version`):
-- makes the overlay an unmanaged, never-activated popup
-  (`WS_POPUP`, `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`, a subclass that adds
-  `SWP_NOACTIVATE` and answers `MA_NOACTIVATE`) parked off screen;
-- captures the page back to back (`CapturePreview` PNG, decoded with WIC) into
-  `Local\omp_overlay_frame_<game pid>`: a 32-byte header (magic `OMPF`,
-  version 1, width, height, stride, seq odd while writing, pid, reserved) and
-  BGRA rows, top-down, room for 3840x2160.
 
+- makes the overlay an unmanaged, never-activated popup parked off screen:
+  `WS_POPUP`, `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`, and a subclass that adds
+  `SWP_NOACTIVATE` and answers `MA_NOACTIVATE`;
+- captures the page back to back (`CapturePreview` PNG, decoded with WIC)
+  into `Local\omp_overlay_frame_<game pid>`. That is a 32-byte header
+  (magic `OMPF`, version 1, width, height, stride, seq odd while writing, pid,
+  reserved), then BGRA rows, top-down, with room for 3840x2160;
 - builds the overlay with `focused(false)` (`ipc.rs`). Tauri's default
   `focused(true)` made wry `MoveFocus` into the new WebView and tao force the
   window to the foreground (`force_window_active`: `SetForegroundWindow`,
   then a synthetic Alt press if that fails). Windows' foreground lock stops
-  that; Wine has none, so every open took the foreground for ~180 ms and the
-  full-screen game minimised. Now the first `show()` is `SW_SHOWNOACTIVATE`
-  and nothing focuses the WebView.
+  that; Wine has none, so every open took the foreground for ~180 ms. Now the
+  first `show()` is `SW_SHOWNOACTIVATE` and nothing focuses the WebView.
 
-The game side is `ompoverlay.asi` (`/mnt/data/Projects/samp/ompoverlay`): it
-points omp-client's `PrintWindow` import at a copy from that block. It also
-works around an omp-client bug: closing the overlay frees its DIB but keeps
-its size, so a reopen at the same size never makes a new one (the browser
-opened only once).
+The game side is `ompoverlay.asi`
+([omp-ingame-browser-wine](https://github.com/akacross/omp-ingame-browser-wine)).
+It points omp-client's `PrintWindow` import at a copy from that block. It also
+works around an omp-client bug: closing the overlay frees its DIB but keeps its
+size, so a reopen at the same size never made a new one (the browser opened
+only once). The game and the launcher must share a prefix, and so a
+wineserver: start games from the launcher.
 
-Testing without the game: a process holding the foreground, plus a script
-that speaks omp-client's IPC (`init:`, `show_overlay:`, `pos:`,
-`hide_overlay:` with that process's pid). The front end closes an overlay
-whose `attached_id` process is not alive, after about a second. The game
-and the launcher must share a prefix (and so a wineserver); start games from
-the launcher.
+Testing without the game: a process that stays alive (the front end closes an
+overlay whose `attached_id` process is gone, after about a second), plus a
+script that speaks omp-client's side of the IPC: `init:<pid>`,
+`show_overlay:<pid>`, `pos:x,y,w,h,<pid>`, `hide_overlay:<pid>`.
+
+## WebView2 crashes: the launcher "locking up"
+
+On 2026-10-13 WebView2's browser process crashed 9 s after an overlay opened
+(Crashpad: `C0000005` reading `0x420` at `msedge.dll+0x2705364`, in the
+browser's main thread). Every page lives in that process, so the main window's
+page died with it and the window stayed blank and frozen. Overlays opened
+afterwards still worked, because each Tauri window makes its own WebView2
+environment and so a new browser process. The cause is not proven. The likeliest
+trigger is the capture loop, which always has a `CapturePreview` in flight:
+closing an overlay destroyed its WebView under that capture. Under Wine:
+
+- **Overlays close only when no capture is in flight.**
+  `wine_overlay::close()` marks the overlay closing; the capture loop closes
+  the window when its current capture is back, or after 1 s.
+  - Tauri 1's `Window::close()` cannot be held back: it destroys the window
+    without a `CloseRequested` event. So both close paths go through
+    `close()`: the IPC `hide_overlay` handler, and the page's own close when
+    its game is gone (the new `close_this_overlay` command in `App.tsx`).
+  - 30 open/close cycles at 1.2 s: every close waited for its capture, with no
+    crash.
+- **A dead WebView2 process is logged and recovered from** (`ProcessFailed`
+  on every WebView):
+  - for the main window, a dead or hung renderer is reloaded; a dead browser
+    process restarts the launcher. A running game keeps running and omp-client
+    reconnects. The new launcher waits for the old one to exit first, or the
+    deep-link check would hand it straight back to it. There is no second
+    restart within a minute;
+  - a dead overlay is closed, and omp-client asks for a new one at the next
+    open;
+  - GPU and utility processes come back by themselves.
+- **The previous run's log is kept** as `omp-launcher.prev.log`, because the
+  log is truncated at every start.
+
+Tested by killing `msedgewebview2.exe` with an overlay open:
+
+```
+ERROR  [wine_overlay] a WebView2 process of omp_overlay_window:1316 died: kind 0 (browser process exited), reason 0, exit code 0x00000001
+INFO   [wine_overlay] omp_overlay_window:1316 closing once its frame capture is back
+ERROR  [wine_overlay] a WebView2 process of main died: kind 0 (browser process exited), reason 0, exit code 0x00000001
+WARN   [wine_overlay] restarting the launcher: its WebView2 browser process is gone
+```
+
+The new instance came up, took over the IPC port and served overlays again.
 
 Also known, not fixed here: the launcher's own download of the open.mp plugin
 (`tauri-plugin-upload`, reqwest on tokio) stalls ~24 KB before the end under

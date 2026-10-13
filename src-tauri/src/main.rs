@@ -53,12 +53,20 @@ async fn main() {
 
     #[cfg(windows)]
     {
+        // a launcher restarted after a WebView2 crash waits for the old one
+        // first, or the deep-link check below would hand it over to it
+        wine_overlay::wait_for_previous_instance();
         deeplink::prepare(DEEPLINK_IDENTIFIER);
     }
 
-    let exe_log_result = env::current_exe().and_then(|exe| {
-        simple_logging::log_to_file(exe.with_file_name(LOG_FILE_NAME), LevelFilter::Info)
-    });
+    // under Wine the previous run's log is kept as omp-launcher.prev.log
+    let log_to = |path: std::path::PathBuf| {
+        #[cfg(windows)]
+        wine_overlay::keep_previous_log(&path);
+        simple_logging::log_to_file(path, LevelFilter::Info)
+    };
+
+    let exe_log_result = env::current_exe().and_then(|exe| log_to(exe.with_file_name(LOG_FILE_NAME)));
 
     if let Err(exe_log_error) = exe_log_result {
         let local_log_result = dirs_next::data_local_dir()
@@ -68,7 +76,7 @@ async fn main() {
             .and_then(|data_dir| {
                 let log_dir = data_dir.join(DATA_DIR_NAME);
                 fs::create_dir_all(&log_dir)?;
-                simple_logging::log_to_file(log_dir.join(LOG_FILE_NAME), LevelFilter::Info)
+                log_to(log_dir.join(LOG_FILE_NAME))
             });
 
         match local_log_result {
@@ -225,7 +233,8 @@ async fn run_tauri_app() -> Result<()> {
             commands::extract_7z,
             commands::copy_files_to_gtasa,
             query::query_server,
-            ipc::send_message_to_game
+            ipc::send_message_to_game,
+            ipc::close_this_overlay
         ])
         .run(tauri::generate_context!());
 
@@ -245,6 +254,9 @@ fn setup_tauri_app(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std:
         main_window.set_min_size(Some(PhysicalSize::new(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)))?;
         #[cfg(windows)]
         set_window_icon_from_exe(&main_window);
+        // under Wine: log a WebView2 process that dies and recover the page
+        #[cfg(windows)]
+        wine_overlay::watch_main(&main_window);
     }
 
     let config = handle.config();
