@@ -17,6 +17,14 @@ fn create_overlay_window(
     label: &str,
     attached_id: i32,
 ) -> tauri::Result<()> {
+    // Under Wine nothing stops a new window from taking the foreground, and the
+    // game minimises when it loses it: no MoveFocus into the WebView (wry) and
+    // no activation on the first show() (tao). On Windows the foreground lock
+    // already keeps the game in front.
+    #[cfg(windows)]
+    let focused = !crate::wine_overlay::is_wine();
+    #[cfg(not(windows))]
+    let focused = true;
     match WindowBuilder::new(
         app,
         label,
@@ -27,6 +35,7 @@ fn create_overlay_window(
     .always_on_top(false)
     .resizable(false)
     .visible(false)
+    .focused(focused)
     .position(-10000.0, -10000.0)
     .skip_taskbar(true)
     // no drag-and-drop handler: wry revokes WebView2's own first, on a window of
