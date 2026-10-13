@@ -8,6 +8,8 @@ mod errors;
 mod helpers;
 mod injector;
 mod ipc;
+#[cfg(windows)]
+mod wine_overlay;
 mod query;
 mod samp;
 mod validation;

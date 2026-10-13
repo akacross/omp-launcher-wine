@@ -36,6 +36,10 @@ fn create_overlay_window(
     {
         Ok(window) => {
             let _ = window.set_title(label);
+            // under Wine: keep it off screen and unfocused, and serve its frames
+            // to the game through shared memory (wine_overlay.rs)
+            #[cfg(windows)]
+            crate::wine_overlay::attach(&window, attached_id);
         }
         Err(err) => {
             println!("{}", err.to_string());
