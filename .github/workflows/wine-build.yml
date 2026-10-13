@@ -1,0 +1,60 @@
+# Cross-builds the launcher for Wine/Proton (i686-pc-windows-gnu, MinGW) on
+# Linux, as WINE-BUILD.md describes, and attaches it to a release for tags.
+# Upstream's build.yml (Windows, MSVC) only runs on master.
+name: Wine build
+on:
+  push:
+    branches: ["wine", "wine-sampcmd"]
+    tags: ["v*-wine*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: MinGW cross compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-mingw-w64-i686 g++-mingw-w64-i686 binutils-mingw-w64-i686
+
+      - name: Rust (the nightly pinned in src-tauri/rust-toolchain.toml)
+        working-directory: src-tauri
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Front end
+        run: |
+          npx yarn@1.22.22 install --frozen-lockfile
+          npx yarn@1.22.22 build
+
+      - name: Launcher
+        working-directory: src-tauri
+        env:
+          TARGET: i686-pc-windows-gnu   # tauri-codegen takes the Windows path from it
+        run: cargo build --release --target i686-pc-windows-gnu --features custom-protocol
+
+      - name: Package
+        run: |
+          mkdir out
+          cp src-tauri/target/i686-pc-windows-gnu/release/omp-launcher.exe \
+             src-tauri/target/i686-pc-windows-gnu/release/WebView2Loader.dll out/
+          cd out && sha256sum omp-launcher.exe WebView2Loader.dll > SHA256SUMS && cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omp-launcher-wine-${{ github.sha }}
+          path: out/
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
