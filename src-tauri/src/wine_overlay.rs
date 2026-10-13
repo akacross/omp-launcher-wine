@@ -62,6 +62,7 @@ use windows_sys::Win32::System::Memory::{
     CreateFileMappingW, MapViewOfFile, UnmapViewOfFile, FILE_MAP_ALL_ACCESS, MEMORY_MAPPED_VIEW_ADDRESS,
     PAGE_READWRITE,
 };
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, IsWindowEnabled};
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     GetWindowLongW, IsWindow, SetWindowLongW, SetWindowPos, GWL_EXSTYLE, GWL_STYLE, HWND_BOTTOM,
@@ -313,9 +314,20 @@ pub fn wait_for_previous_instance() {
 
 /// Unmanaged (no window-manager decorations, placement or focus), never
 /// activated, shown off screen so WebView2 keeps painting.
+///
+/// And disabled. The game posts the player's clicks to Chromium's render
+/// widget, and on a button press Chromium calls SetFocus on that widget. That
+/// activates the widget's top-level window, this one, and Wine hands it the
+/// foreground (the X input focus), so the full-screen game lost it and
+/// minimised on the first click into the in-game browser, until the player
+/// clicked the game again. Wine's SetFocus refuses a window under a disabled
+/// one. Posted mouse and key messages are not hardware input and still reach
+/// the page: clicks and typing were checked in a headless KWin against a
+/// stand-in game holding the foreground.
 unsafe fn park(hwnd: HWND) {
     SetWindowLongW(hwnd, GWL_STYLE, (WS_POPUP | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS) as i32);
     SetWindowLongW(hwnd, GWL_EXSTYLE, (WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) as i32);
+    EnableWindow(hwnd, 0);
     SetWindowSubclass(hwnd, Some(no_activate), SUBCLASS_ID, 0);
     SetWindowPos(
         hwnd,
@@ -330,7 +342,7 @@ unsafe fn park(hwnd: HWND) {
 
 /// tao re-applies its own styles on some changes; put ours back when it does.
 unsafe fn keep_parked(hwnd: HWND) {
-    if (GetWindowLongW(hwnd, GWL_EXSTYLE) as u32) & WS_EX_NOACTIVATE == 0 {
+    if (GetWindowLongW(hwnd, GWL_EXSTYLE) as u32) & WS_EX_NOACTIVATE == 0 || IsWindowEnabled(hwnd) != 0 {
         park(hwnd);
     }
 }

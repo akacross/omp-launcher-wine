@@ -66,7 +66,14 @@ The result is the game tabbing out and an empty square in game.
   window to the foreground (`force_window_active`: `SetForegroundWindow`,
   then a synthetic Alt press if that fails). Windows' foreground lock stops
   that; Wine has none, so every open took the foreground for ~180 ms. Now the
-  first `show()` is `SW_SHOWNOACTIVATE` and nothing focuses the WebView.
+  first `show()` is `SW_SHOWNOACTIVATE` and nothing focuses the WebView;
+- keeps the overlay disabled (`EnableWindow(FALSE)`). The game posts the
+  player's clicks to Chromium's `Chrome_RenderWidgetHostHWND`, and on a
+  button press Chromium calls `SetFocus` on it. That activates its top-level
+  window, the overlay, and Wine hands it the foreground, so the game tabbed
+  out on the first click into the browser until the player clicked the game
+  again. Wine's `SetFocus` refuses a window under a disabled one. Posted mouse
+  and key messages are not hardware input and still reach the page.
 
 The game side is `ompoverlay.asi`
 ([omp-ingame-browser-wine](https://github.com/akacross/omp-ingame-browser-wine)).
