@@ -52,9 +52,14 @@ async fn main() {
 
     #[cfg(windows)]
     {
+        // a launcher restarted after a WebView2 crash waits for the old one
+        // first, or the deep-link check below would hand it over to it
+        wine_overlay::wait_for_previous_instance();
         deeplink::prepare(DEEPLINK_IDENTIFIER);
     }
 
+    #[cfg(windows)]
+    wine_overlay::keep_previous_log(LOG_FILE_NAME);
     if let Err(e) = simple_logging::log_to_file(LOG_FILE_NAME, LevelFilter::Info) {
         eprintln!("Failed to initialize logging: {}", e);
         exit(1);
@@ -172,7 +177,8 @@ async fn run_tauri_app() -> Result<()> {
             commands::extract_7z,
             commands::copy_files_to_gtasa,
             query::query_server,
-            ipc::send_message_to_game
+            ipc::send_message_to_game,
+            ipc::close_this_overlay
         ])
         .run(tauri::generate_context!());
 
@@ -192,6 +198,9 @@ fn setup_tauri_app(app: &mut tauri::App) -> std::result::Result<(), Box<dyn std:
         main_window.set_min_size(Some(PhysicalSize::new(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)))?;
         #[cfg(windows)]
         set_window_icon_from_exe(&main_window);
+        // under Wine: log a WebView2 process that dies and recover the page
+        #[cfg(windows)]
+        wine_overlay::watch_main(&main_window);
     }
 
     let config = handle.config();

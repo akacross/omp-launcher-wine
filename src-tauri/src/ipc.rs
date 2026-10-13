@@ -133,7 +133,7 @@ pub fn listen_for_ipc(app_handle: AppHandle) {
                             if parts.len() >= 2 {
                                 let window_label = format!("omp_overlay_window:{}", parts[1]);
                                 if let Some(window) = handle.get_window(&window_label) {
-                                    let _ = window.close();
+                                    close_overlay_window(&window);
                                 } else {
                                     log::warn!("IPC overlay window not found: {}", window_label);
                                 }
@@ -147,6 +147,21 @@ pub fn listen_for_ipc(app_handle: AppHandle) {
             }
         }
     });
+}
+
+/// Under Wine an overlay closes only once its frame capture is back
+/// (wine_overlay::close); elsewhere, at once.
+fn close_overlay_window(window: &tauri::Window) {
+    #[cfg(windows)]
+    crate::wine_overlay::close(window);
+    #[cfg(not(windows))]
+    let _ = window.close();
+}
+
+/// The overlay page closes itself through this when its game is gone.
+#[tauri::command]
+pub fn close_this_overlay(window: tauri::Window) {
+    close_overlay_window(&window);
 }
 
 #[tauri::command]
