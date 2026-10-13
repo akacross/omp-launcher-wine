@@ -34,6 +34,31 @@ shows nothing from a child window owned by another process, and WebView2's
 content window belongs to `msedgewebview2.exe`. Blank with GPU and with
 software rendering, though Chromium renders fine.
 
+## The in-game browser
+
+omp-client.dll asks the launcher (IPC, `show_overlay:<pid>`) for an overlay
+window, `omp_overlay_window:<game pid>`, copies it with `PrintWindow` every
+frame and posts the player's input to its WebView. On Windows the window sits
+invisible at -15000,-15000. Under Wine the window manager pulls it back on
+screen, `show()` activates it so the game loses focus, and `PrintWindow`
+returns no pixels: Wine sends `WM_PRINT` with the game's DC to the launcher,
+which cannot draw into another process's DC. The result is the game tabbing
+out and an empty square in game.
+
+`src-tauri/src/wine_overlay.rs` (only when ntdll exports `wine_get_version`):
+- makes the overlay an unmanaged, never-activated popup
+  (`WS_POPUP`, `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`, a subclass that adds
+  `SWP_NOACTIVATE` and answers `MA_NOACTIVATE`) parked off screen;
+- captures the page back to back (`CapturePreview` PNG, decoded with WIC) into
+  `Local\omp_overlay_frame_<game pid>`: a 32-byte header (magic `OMPF`,
+  version 1, width, height, stride, seq odd while writing, pid, reserved) and
+  BGRA rows, top-down, room for 3840x2160.
+
+The game side is `ompoverlay.asi` (`/mnt/data/Projects/samp/ompoverlay`): it
+points omp-client's `PrintWindow` import at a copy from that block. The game
+and the launcher must share a prefix (and so a wineserver); start games from
+the launcher.
+
 Also known, not fixed here: the launcher's own download of the open.mp plugin
 (`tauri-plugin-upload`, reqwest on tokio) stalls ~24 KB before the end under
 Wine. Place `omp-client.dll` (from the URL in https://api.open.mp/launcher,

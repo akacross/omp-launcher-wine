@@ -111,6 +111,10 @@ fn create_overlay_window(app: &tauri::AppHandle, pid: i32) -> Option<u32> {
     {
         Ok(window) => {
             let _ = window.set_title(&label);
+            // under Wine: keep it off screen and unfocused, and serve its frames
+            // to the game through shared memory (wine_overlay.rs)
+            #[cfg(windows)]
+            crate::wine_overlay::attach(&window, pid);
             overlay_window_id(&window)
         }
         Err(err) => {
