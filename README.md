@@ -1,8 +1,8 @@
 > **This is a Wine/Proton compatibility pass** on [open.mp launcher](https://github.com/openmultiplayer/launcher)
 > (v1.7.0), for running it on Linux. Every change is in [WINE-BUILD.md](WINE-BUILD.md):
-> what broke under Wine, why, and the fix. The in-game server browser also needs
-> [`ompoverlay.asi`](https://github.com/akacross/omp-ingame-browser-wine) in the game
-> folder; the whole setup (prefix, WebView2, launch script) is in
+> what broke under Wine, why, and the fix. The in-game server browser's game side
+> (from [omp-ingame-browser-wine](https://github.com/akacross/omp-ingame-browser-wine)) is
+> built in and injected by the launcher; the whole setup (prefix, WebView2, launch script) is in
 > [samp-openmp-linux](https://github.com/akacross/samp-openmp-linux). Outside Wine the
 > launcher behaves as upstream's. The app keeps open.mp's name and branding, as its
 > license requires. Builds: [Releases](../../releases), or the `Wine build` workflow.

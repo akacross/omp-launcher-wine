@@ -178,6 +178,11 @@ pub fn listen_for_ipc(app_handle: AppHandle) {
                                                 client_pid = Some(pid);
                                             }
                                         }
+                                        // under Wine: the game's side of the overlay frames
+                                        #[cfg(windows)]
+                                        if client_pid == Some(pid) {
+                                            crate::wine_overlay::inject_hook(&handle, pid);
+                                        }
                                         if client_pid == Some(pid) {
                                             if let Some(window) =
                                                 handle.get_window(&overlay_window_label(pid))

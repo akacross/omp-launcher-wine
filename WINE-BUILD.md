@@ -76,13 +76,18 @@ The result is the game tabbing out and an empty square in game.
   again. Wine's `SetFocus` refuses a window under a disabled one. Posted mouse
   and key messages are not hardware input and still reach the page.
 
-The game side is `ompoverlay.asi`
-([omp-ingame-browser-wine](https://github.com/akacross/omp-ingame-browser-wine)).
-It points omp-client's `PrintWindow` import at a copy from that block. It also
-works around an omp-client bug: closing the overlay frees its DIB but keeps its
-size, so a reopen at the same size never made a new one (the browser opened
-only once). The game and the launcher must share a prefix, and so a
-wineserver: start games from the launcher.
+The game side is `ompoverlay.dll` (`src-tauri/ompoverlay/ompoverlay.c`, from
+`ompoverlay.asi` in
+[omp-ingame-browser-wine](https://github.com/akacross/omp-ingame-browser-wine)).
+It points omp-client's `PrintWindow` import at a copy from that block.
+`build.rs` compiles it with the MinGW compiler into the launcher exe; once a
+game's omp-client connects (`init:<pid>`), the launcher writes it next to
+`omp-client.dll` and injects it, for games started directly or through
+sampcmd. Nothing goes in the game folder; an `ompoverlay.asi` still there is
+left to serve the frames, and is no longer needed. The ASI's workaround for
+omp-client 0.2.2 (launcher v1.6) making no new bitmap for an overlay reopened
+at the same size is left out: v1.7's client does. The game and the launcher
+must share a prefix, and so a wineserver: start games from the launcher.
 
 Testing without the game: a process that stays alive (the front end closes an
 overlay whose `attached_id` process is gone, after about a second), plus a

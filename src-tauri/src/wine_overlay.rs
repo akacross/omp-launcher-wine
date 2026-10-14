@@ -146,6 +146,46 @@ pub fn close(window: &tauri::Window) {
     });
 }
 
+/// The game's side (ompoverlay/ompoverlay.c, built by build.rs): it points
+/// omp-client's PrintWindow at these frames. Empty when the build made none.
+const HOOK_DLL: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ompoverlay.dll"));
+
+/// A game's omp-client has connected (ipc.rs, init:<pid>): inject
+/// ompoverlay.dll, written next to omp-client.dll. Loading it again into the
+/// same game (omp-client reconnecting) only adds a reference. Does nothing
+/// outside Wine.
+pub fn inject_hook(app: &tauri::AppHandle, game_pid: i32) {
+    if !is_wine() || HOOK_DLL.is_empty() {
+        return;
+    }
+    let Some(dir) = app.path_resolver().app_local_data_dir() else {
+        log::warn!("[wine_overlay] no app data folder for ompoverlay.dll");
+        return;
+    };
+    std::thread::spawn(move || {
+        let path = dir.join("omp").join("ompoverlay.dll");
+        // a game still running holds the file open; it is this one unless the
+        // launcher was updated meanwhile
+        if std::fs::read(&path).ok().as_deref() != Some(HOOK_DLL) {
+            if let Err(e) = std::fs::write(&path, HOOK_DLL) {
+                log::warn!("[wine_overlay] cannot write {}: {}", path.display(), e);
+            }
+        }
+        let injected = dll_syringe::process::OwnedProcess::from_pid(game_pid as u32)
+            .map_err(|e| e.to_string())
+            .and_then(|process| {
+                dll_syringe::Syringe::for_process(process)
+                    .inject(&path)
+                    .map(|_| ())
+                    .map_err(|e| e.to_string())
+            });
+        match injected {
+            Ok(()) => log::info!("[wine_overlay] ompoverlay.dll injected into game {}", game_pid),
+            Err(e) => log::warn!("[wine_overlay] cannot inject ompoverlay.dll into game {}: {}", game_pid, e),
+        }
+    });
+}
+
 /// Hook up a freshly built overlay window. Does nothing outside Wine.
 pub fn attach(window: &tauri::Window, game_pid: i32) {
     if !is_wine() {
