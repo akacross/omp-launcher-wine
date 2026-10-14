@@ -2,7 +2,7 @@ import { fs, invoke, path } from "@tauri-apps/api";
 import { FileEntry } from "@tauri-apps/api/fs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
-import { download } from "tauri-plugin-upload-api";
+import { download } from "../../utils/download";
 import { getUpdateInfo } from "../../api/apis";
 import Icon from "../../components/Icon";
 import Text from "../../components/Text";
@@ -147,7 +147,7 @@ const LoadingScreen = ({ onEnd }: LoadingScreenProps) => {
                 }
               }
             }
-          );
+          ).catch(reject); // a failed download, instead of waiting on progress
         });
 
         await processFileChecksums(false);
@@ -184,7 +184,7 @@ const LoadingScreen = ({ onEnd }: LoadingScreenProps) => {
               resetDownloadState();
               resolve();
             }
-          });
+          }).catch(reject); // a failed download, instead of waiting on progress
         });
 
         // Small delay to ensure file is fully written

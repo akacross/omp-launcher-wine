@@ -13,6 +13,7 @@ mod wine_overlay;
 mod query;
 mod samp;
 mod validation;
+mod wine_download;
 
 #[path = "deeplink/lib.rs"]
 #[cfg(target_os = "windows")]
@@ -234,7 +235,9 @@ async fn run_tauri_app() -> Result<()> {
             commands::copy_files_to_gtasa,
             query::query_server,
             ipc::send_message_to_game,
-            ipc::close_this_overlay
+            ipc::close_this_overlay,
+            wine_download::is_wine,
+            wine_download::wine_download
         ])
         .run(tauri::generate_context!());
 
