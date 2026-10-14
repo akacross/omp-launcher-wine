@@ -1,7 +1,7 @@
-# open.mp launcher v1.6.1, rebuilt for Wine/Proton
+# open.mp launcher v1.7.0, rebuilt for Wine/Proton
 
 A Wine/Proton compatibility pass on https://github.com/openmultiplayer/launcher
-at tag v1.6.1. Upstream's launcher installs and opens under Proton (with the
+at tag v1.7.0. Upstream's launcher installs and opens under Proton (with the
 Microsoft Edge WebView2 runtime), but crashes, lags and breaks the in-game
 server browser there. These changes fix that in source. Everything Wine-only
 is behind a check for `wine_get_version` in ntdll, so on Windows the launcher
@@ -118,8 +118,9 @@ closing an overlay destroyed its WebView under that capture. Under Wine:
   - a dead overlay is closed, and omp-client asks for a new one at the next
     open;
   - GPU and utility processes come back by themselves.
-- **The previous run's log is kept** as `omp-launcher.prev.log`, because the
-  log is truncated at every start.
+- **The previous run's log is kept** as `omp-launcher.prev.log` beside
+  `omp-launcher.log` (next to the exe, or in local app data when that fails),
+  because the log is truncated at every start.
 
 Tested by killing `msedgewebview2.exe` with an overlay open:
 
