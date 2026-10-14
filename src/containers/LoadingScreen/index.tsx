@@ -289,15 +289,6 @@ const LoadingScreen = ({ onEnd }: LoadingScreenProps) => {
           }
 
           updateInfo = response.data;
-          // Use this build's entry, as fetchUpdateInfo() does: the top-level
-          // fields describe an older launcher (omp-client.dll v0.1.4), and when
-          // this check ran first it "updated" the plugin to that one.
-          const versionInfo = updateInfo.versions?.[useAppState.getState().version];
-          if (versionInfo) {
-            updateInfo.download = versionInfo.download;
-            updateInfo.ompPluginChecksum = versionInfo.ompPluginChecksum;
-            updateInfo.ompPluginDownload = versionInfo.ompPluginDownload;
-          }
           useAppState.getState().setUpdateInfo(updateInfo);
         } else {
           updateInfo = currentUpdateInfo;
