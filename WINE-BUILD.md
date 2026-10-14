@@ -89,6 +89,18 @@ omp-client 0.2.2 (launcher v1.6) making no new bitmap for an overlay reopened
 at the same size is left out: v1.7's client does. The game and the launcher
 must share a prefix, and so a wineserver: start games from the launcher.
 
+It also keeps the game from crashing as it quits, an omp-client 1.7 bug and
+not a Wine one. omp-client keeps its socket thread to the launcher in a global
+`std::thread`; the cleanup that joins it is registered at load and does not
+run on every way out, so as the DLL unloads that global's destructor
+(`cmp dword [id],0 / jne std::terminate / ret`, `omp-client.dll+0x148930`)
+finds it joinable and calls `std::terminate`: `abort()`, `__fastfail(7)`,
+`0xC0000409` on every quit. ompoverlay.dll finds that destructor by its code
+and, when the process is ending (`DLL_PROCESS_DETACH` with a non-NULL
+reserved, which reaches it before omp-client, loaded earlier), zeroes the
+global's handle and id: ExitProcess has already ended that thread. The 1.6
+client has no such global.
+
 Testing without the game: a process that stays alive (the front end closes an
 overlay whose `attached_id` process is gone, after about a second), plus a
 script that speaks omp-client's side of the IPC: `init:<pid>`,

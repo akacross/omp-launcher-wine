@@ -23,6 +23,8 @@
  * The ASI also worked around omp-client 0.2.2 (launcher v1.6) making no new
  * bitmap for an overlay reopened at the same size; the client of launcher
  * v1.7 does, so that part is gone.
+ *
+ * And it keeps the game from crashing as it quits: see release_exit_thread.
  */
 #include <windows.h>
 #include <stdarg.h>
@@ -46,6 +48,7 @@ static HGDIOBJ last_bmp;               /* the DIB last filled; omp-client keeps 
 static void *last_bits;
 static HGDIOBJ probed_bmp;             /* the DIB whose row order was last probed */
 static int probed_top_down;
+static volatile DWORD *exit_thread_id; /* omp-client's global std::thread's id (release_exit_thread) */
 
 static void log_line(const char *fmt, ...)
 {
@@ -198,6 +201,91 @@ static int patch_import(HMODULE module)
     return 0;
 }
 
+/* Find `pattern` ("83 3D ?? ..") in the module's code sections; the match, if
+ * exactly one, else NULL. */
+static unsigned char *find_code(HMODULE module, const char *pattern)
+{
+    unsigned char want[64], mask[64];
+    int n = 0;
+    for (const char *p = pattern; *p && n < 64; ) {
+        if (*p == ' ') { p++; continue; }
+        if (p[0] == '?') { want[n] = 0; mask[n++] = 0; p += 2; continue; }
+        char hex[3] = {p[0], p[1], 0};
+        want[n] = (unsigned char)strtoul(hex, NULL, 16); mask[n++] = 1; p += 2;
+    }
+    unsigned char *base = (unsigned char *)module, *found = NULL;
+    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    IMAGE_SECTION_HEADER *sec = IMAGE_FIRST_SECTION(nt);
+    for (int i = 0; i < nt->FileHeader.NumberOfSections; i++, sec++) {
+        if (!(sec->Characteristics & IMAGE_SCN_CNT_CODE))
+            continue;
+        unsigned char *start = base + sec->VirtualAddress;
+        DWORD size = sec->Misc.VirtualSize;
+        for (DWORD at = 0; at + n <= size; at++) {
+            int k = 0;
+            while (k < n && (!mask[k] || start[at + k] == want[k]))
+                k++;
+            if (k == n) {
+                if (found)
+                    return NULL;   /* not unique */
+                found = start + at;
+            }
+        }
+    }
+    return found;
+}
+
+/* Whether [p, p+size) lies in one of the module's writable sections. */
+static int in_writable_section(HMODULE module, const void *p, size_t size)
+{
+    unsigned char *base = (unsigned char *)module;
+    IMAGE_NT_HEADERS *nt = (IMAGE_NT_HEADERS *)(base + ((IMAGE_DOS_HEADER *)base)->e_lfanew);
+    IMAGE_SECTION_HEADER *sec = IMAGE_FIRST_SECTION(nt);
+    for (int i = 0; i < nt->FileHeader.NumberOfSections; i++, sec++) {
+        const unsigned char *start = base + sec->VirtualAddress;
+        if ((sec->Characteristics & IMAGE_SCN_MEM_WRITE) && (const unsigned char *)p >= start &&
+            (const unsigned char *)p + size <= start + sec->Misc.VirtualSize)
+            return 1;
+    }
+    return 0;
+}
+
+/* omp-client of launcher v1.7 keeps a std::thread in a global: its socket
+ * thread to the launcher. The cleanup that stops and joins it is registered at
+ * load and does not run on every way out of the game, and then, as the DLL
+ * unloads, that global's destructor finds the thread still joinable and calls
+ * std::terminate: abort(), __fastfail(7), 0xC0000409 on quitting. The
+ * destructor (0x10148930 in that build) is
+ *   cmp dword [thread id], 0 / jne std::terminate / ret
+ * By the time any DLL hears that the process is ending, ExitProcess has ended
+ * every other thread, that one included; and this DLL, loaded after
+ * omp-client, hears it first. So it marks the global as holding no thread
+ * (handle and id 0, as a detach leaves it) and the destructor returns. */
+#define EXIT_THREAD_DTOR "83 3D ?? ?? ?? ?? 00 0F 85 ?? ?? ?? ?? C3"
+
+static void find_exit_thread(HMODULE omp)
+{
+    unsigned char *dtor = find_code(omp, EXIT_THREAD_DTOR);
+    volatile DWORD *id = dtor ? *(volatile DWORD **)(dtor + 2) : NULL;
+    if (!id || !in_writable_section(omp, (const void *)(id - 1), 2 * sizeof(DWORD))) {
+        log_line("%s's thread destructor is not the one this plugin knows; quitting may still end in abort()", TARGET_DLL);
+        return;
+    }
+    exit_thread_id = id;
+    log_line("%s keeps its launcher thread at %p; it is released when the game quits", TARGET_DLL, (void *)(id - 1));
+}
+
+static void release_exit_thread(void)
+{
+    volatile DWORD *id = exit_thread_id;
+    if (!id || !*id)
+        return;
+    log_line("the game is quitting with %s's launcher thread (id %lu) still held; released, so its destructor does not abort()",
+             TARGET_DLL, (unsigned long)*id);
+    id[-1] = 0;   /* the handle: the process is ending, nothing to close */
+    id[0] = 0;
+}
+
 /* The launcher injects this once omp-client has connected to it, so
  * omp-client.dll is loaded already; wait for it all the same. */
 static DWORD WINAPI watch(void *unused)
@@ -206,6 +294,7 @@ static DWORD WINAPI watch(void *unused)
     for (int i = 0; i < 1200; i++) {   /* two minutes */
         HMODULE omp = GetModuleHandleA(TARGET_DLL);
         if (omp) {
+            find_exit_thread(omp);
             /* an ompoverlay.asi from before already serves the frames */
             if (GetModuleHandleA("ompoverlay.asi")) {
                 log_line("ompoverlay.asi is loaded and serves the frames; it is no longer needed");
@@ -224,12 +313,14 @@ static DWORD WINAPI watch(void *unused)
 
 BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, void *reserved)
 {
-    (void)reserved;
     if (reason == DLL_PROCESS_ATTACH) {
         DisableThreadLibraryCalls(inst);
         HANDLE t = CreateThread(NULL, 0, watch, NULL, 0, NULL);
         if (t)
             CloseHandle(t);
+    } else if (reason == DLL_PROCESS_DETACH && reserved) {
+        /* the process is ending (not a FreeLibrary) */
+        release_exit_thread();
     }
     return TRUE;
 }
