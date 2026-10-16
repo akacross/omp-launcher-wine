@@ -82,8 +82,7 @@ The game side is `ompoverlay.dll` (`src-tauri/ompoverlay/ompoverlay.c`, from
 It points omp-client's `PrintWindow` import at a copy from that block.
 `build.rs` compiles it with the MinGW compiler into the launcher exe; once a
 game's omp-client connects (`init:<pid>`), the launcher writes it next to
-`omp-client.dll` and injects it, for games started directly or through
-sampcmd. Nothing goes in the game folder; an `ompoverlay.asi` still there is
+`omp-client.dll` and injects it. Nothing goes in the game folder; an `ompoverlay.asi` still there is
 left to serve the frames, and is no longer needed. The ASI's workaround for
 omp-client 0.2.2 (launcher v1.6) making no new bitmap for an overlay reopened
 at the same size is left out: v1.7's client does. The game and the launcher
