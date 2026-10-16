@@ -100,10 +100,30 @@ reserved, which reaches it before omp-client, loaded earlier), zeroes the
 global's handle and id: ExitProcess has already ended that thread. The 1.6
 client has no such global.
 
+**Overlays whose game is gone close.** Each overlay's page checks once a
+second that its game's pid is alive (`OpenProcess`), and when it is not, sends
+the game `close_overlay` and then closes itself. But a game that is gone has
+usually taken its IPC stream with it. The send then fails ("No IPC stream
+found for process ID"), and the page's close came after it, so it never ran.
+The overlay stayed open, logging that warning every second, with a WebView2
+renderer (~900 MB) and, under Wine, a frame capture running. Seen 2026-10-14:
+three such overlays, from IPC clients that had disconnected. Now:
+
+- the page closes whether or not that send succeeds, and stops checking
+  (`App.tsx`, on Windows too: there is nothing to close it otherwise);
+- under Wine, the launcher also closes a game's overlay as soon as that
+  game's IPC connection ends, unless a newer connection from the same game has
+  replaced it (`ipc.rs`). The page's check alone takes a live pid for a live
+  game, and Wine hands out small pids again quickly.
+
 Testing without the game: a process that stays alive (the front end closes an
 overlay whose `attached_id` process is gone, after about a second), plus a
 script that speaks omp-client's side of the IPC: `init:<pid>`,
-`show_overlay:<pid>`, `pos:x,y,w,h,<pid>`, `hide_overlay:<pid>`.
+`show_overlay:<pid>`, `pos:x,y,w,h,<pid>`, `hide_overlay:<pid>`. Under Wine
+the script must keep its connection open while the overlay should stay. Run
+both in a private network namespace (`unshare -rn`, then `ip link set lo
+up`), with their own prefix. A launcher already running on the desktop holds
+127.0.0.1:45791, and the script would talk to it instead.
 
 ## WebView2 crashes: the launcher "locking up"
 

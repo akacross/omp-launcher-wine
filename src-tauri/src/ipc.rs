@@ -284,13 +284,30 @@ pub fn listen_for_ipc(app_handle: AppHandle) {
                     }
 
                     if let Some(pid) = client_pid {
+                        let mut current = false;
                         if let Ok(mut clients) = GAME_CLIENTS.lock() {
                             if clients.get(&pid).map(|client| client.connection_id)
                                 == Some(connection_id)
                             {
                                 clients.remove(&pid);
+                                current = true;
                             }
                         }
+                        // Under Wine: the game is gone (or its omp-client
+                        // reconnects, and asks again), so its overlay goes too.
+                        // The page's own check takes the pid being alive for its
+                        // game being alive, which a reused pid fools, and every
+                        // overlay left open keeps a WebView2 renderer and a
+                        // frame capture running (wine_overlay.rs).
+                        #[cfg(windows)]
+                        if current && crate::wine_overlay::is_wine() {
+                            if let Some(window) = handle.get_window(&overlay_window_label(pid)) {
+                                log::info!("[ipc] game {} disconnected; closing its overlay", pid);
+                                close_overlay_window(&window);
+                            }
+                        }
+                        #[cfg(not(windows))]
+                        let _ = current;
                     }
                 });
             }

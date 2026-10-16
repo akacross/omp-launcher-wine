@@ -176,10 +176,14 @@ const App = memo(() => {
           try {
             const isAlive = await checkIfProcessAlive(IN_GAME_PROCESS_ID);
             if (!isAlive) {
+              clearInterval(processCheckInterval.current);
+              // A game that is gone has usually taken its IPC stream with it,
+              // and then this send fails: close all the same, or the overlay
+              // (its WebView, and under Wine its frame capture) never goes.
               await invoke("send_message_to_game", {
                 id: IN_GAME_PROCESS_ID,
                 message: "close_overlay",
-              });
+              }).catch(() => {});
               // through the launcher: under Wine it waits for the frame
               // capture in flight (src-tauri/src/wine_overlay.rs)
               setTimeout(
